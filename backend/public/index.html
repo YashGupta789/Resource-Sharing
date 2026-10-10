@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resource Sharing System</title>
+<style>
+  :root { --bg:#f5f6fa; --card:#fff; --ink:#1f2430; --muted:#6b7385; --line:#e3e6ee; --brand:#2f5bea; --ok:#12805c; --err:#c0392b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--brand); color:#fff; padding:12px 20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+  header h1 { font-size:18px; margin:0; }
+  header .right { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  header select, header a, header button { font:inherit; }
+  header a { color:#fff; }
+  nav { display:flex; gap:4px; padding:10px 20px 0; flex-wrap:wrap; }
+  nav button { border:0; background:transparent; padding:8px 14px; border-radius:8px 8px 0 0; cursor:pointer; color:var(--muted); font:inherit; }
+  nav button.active { background:var(--card); color:var(--brand); font-weight:600; }
+  main { padding:0 20px 20px; }
+  section { display:none; background:var(--card); border:1px solid var(--line); border-radius:0 8px 8px 8px; padding:16px; }
+  section.active { display:block; }
+  h2 { margin:0 0 10px; font-size:16px; }
+  h3 { margin:18px 0 8px; font-size:14px; color:var(--muted); }
+  table { border-collapse:collapse; width:100%; margin-bottom:6px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+  td.act { white-space:nowrap; }
+  button, input, select { font:inherit; }
+  button { border:1px solid var(--line); background:#fff; padding:4px 9px; border-radius:6px; cursor:pointer; }
+  button:hover { border-color:var(--brand); color:var(--brand); }
+  button.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+  input, select { padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  form, .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+  .muted { color:var(--muted); }
+  .cards { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:10px 16px; min-width:110px; }
+  .card b { display:block; font-size:22px; color:var(--brand); }
+  .tag { padding:1px 8px; border-radius:10px; font-size:12px; background:#eef1fb; }
+  .tag.available, .tag.returned, .tag.resolved { background:#e3f6ee; color:var(--ok); }
+  .tag.borrowed, .tag.pending { background:#fff2dc; color:#a86500; }
+  .tag.rejected { background:#fdeaea; color:var(--err); }
+  #toast { position:fixed; right:16px; bottom:16px; padding:10px 16px; border-radius:8px; color:#fff; display:none; max-width:360px; }
+  #log { background:#10131a; color:#b9f3c9; padding:12px; border-radius:8px; font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; max-height:240px; overflow:auto; margin:16px 20px 24px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Resource Sharing System <span style="opacity:.75;font-weight:400;font-size:13px">— Node.js + Neo4j</span></h1>
+  <div class="right">
+    <label>Acting as: <select id="me"></select></label>
+    <a href="http://localhost:7474" target="_blank" rel="noopener">Open Neo4j Browser ↗</a>
+    <button id="resetBtn" title="Delete everything and reload the sample data">Reset demo data</button>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="dashboard" class="active">Dashboard</button>
+  <button data-tab="resources">Resources</button>
+  <button data-tab="borrows">Borrow / Return</button>
+  <button data-tab="favorites">Favorites</button>
+  <button data-tab="reports">Reports</button>
+  <button data-tab="master">Departments · Subjects · Users</button>
+</nav>
+
+<main>
+  <section id="tab-dashboard" class="active">
+    <h2>Database contents</h2>
+    <div id="nodeCards" class="cards"></div>
+    <h3>Relationships stored in the graph</h3>
+    <div id="relCards" class="cards"></div>
+    <h3>Average rating per resource</h3>
+    <div id="avgTable"></div>
+    <h3>All ratings &amp; reviews</h3>
+    <div id="ratingsTable"></div>
+  </section>
+
+  <section id="tab-resources">
+    <h2>Resources</h2>
+    <div class="filters">
+      <input id="fq" placeholder="Search title…">
+      <select id="ftype"><option value="">All types</option><option>digital</option><option>physical</option></select>
+      <select id="fstatus"><option value="">Any status</option><option>available</option><option>borrowed</option></select>
+      <button class="primary" id="fbtn">Search</button>
+    </div>
+    <div id="resTable"></div>
+    <h3>Upload / add a resource (owner = “Acting as” user)</h3>
+    <form data-post="/api/resources" data-owner="1">
+      <input name="title" placeholder="Title" required>
+      <input name="description" placeholder="Description">
+      <select name="resource_type"><option>digital</option><option>physical</option></select>
+      <input name="category" placeholder="Category (Notes, Book…)">
+      <input name="file_url" placeholder="File name / URL (digital)">
+      <select name="subject_id" class="subjectSel" required></select>
+      <button class="primary">Add resource</button>
+    </form>
+  </section>
+
+  <section id="tab-borrows">
+    <h2>Borrow records</h2>
+    <p class="muted">Borrow a physical resource from the Resources tab (due in 7 days). To demo a fine without waiting, enter a return date after the due date: <input type="date" id="returnDate"> (Rs.10 per late day)</p>
+    <div id="borrowTable"></div>
+  </section>
+
+  <section id="tab-favorites">
+    <h2>Favorites</h2>
+    <div id="favTable"></div>
+  </section>
+
+  <section id="tab-reports">
+    <h2>Reports</h2>
+    <div id="repTable"></div>
+  </section>
+
+  <section id="tab-master">
+    <h2>Departments</h2>
+    <div id="deptTable"></div>
+    <form data-post="/api/departments">
+      <input name="department_name" placeholder="Name (e.g. IT)" required>
+      <input name="description" placeholder="Description">
+      <button class="primary">Add department</button>
+    </form>
+    <h2>Subjects</h2>
+    <div id="subTable"></div>
+    <form data-post="/api/subjects">
+      <input name="subject_name" placeholder="Subject name" required>
+      <input name="semester" type="number" min="1" max="8" placeholder="Semester 1-8" required>
+      <select name="department_id" class="deptSel" required></select>
+      <button class="primary">Add subject</button>
+    </form>
+    <h2>Users</h2>
+    <div id="userTable"></div>
+    <form data-post="/api/users">
+      <input name="name" placeholder="Name" required>
+      <input name="email" type="email" placeholder="Email" required>
+      <input name="password" type="password" placeholder="Password" required>
+      <input name="phone" placeholder="Phone">
+      <input name="student_year" type="number" min="1" max="4" placeholder="Year 1-4" required>
+      <select name="department_id" class="deptSel" required></select>
+      <button class="primary">Add user</button>
+    </form>
+  </section>
+</main>
+
+<h3 style="margin:0 20px;color:#6b7385">Last API call (proof that the backend + database are doing the work)</h3>
+<pre id="log">Nothing yet — click something.</pre>
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const me = () => Number($('#me').value);
+
+function toast(msg, isErr) {
+  const t = $('#toast');
+  t.textContent = msg; t.style.background = isErr ? '#c0392b' : '#12805c'; t.style.display = 'block';
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = 'none'), 3500);
+}
+
+async function api(method, url, body) {
+  const res = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  $('#log').textContent = `${method} ${url}${body ? '\n' + JSON.stringify(body) : ''}\n→ HTTP ${res.status}\n` + JSON.stringify(data, null, 2);
+  if (!res.ok) { toast(data.error || 'Request failed', true); throw new Error(data.error || res.status); }
+  return data;
+}
+
+const tag = (v) => `<span class="tag ${esc(v)}">${esc(v)}</span>`;
+const btn = (act, id, label) => `<button data-act="${act}" data-id="${id}">${label}</button>`;
+
+function table(rows, cols, actionFn) {
+  if (!rows.length) return '<p class="muted">No records.</p>';
+  const head = cols.map((c) => `<th>${c[1]}</th>`).join('') + (actionFn ? '<th></th>' : '');
+  const body = rows.map((r) =>
+    '<tr>' + cols.map((c) => `<td>${c[2] ? c[2](r[c[0]]) : esc(r[c[0]])}</td>`).join('') +
+    (actionFn ? `<td class="act">${actionFn(r)}</td>` : '') + '</tr>').join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function fillSelect(sel, rows, valKey, labelFn) {
+  sel.innerHTML = rows.map((r) => `<option value="${esc(r[valKey])}">${esc(labelFn(r))}</option>`).join('');
+}
+
+/* ---------- loaders ---------- */
+async function loadMaster() {
+  const [depts, subs, users] = await Promise.all([api('GET', '/api/departments'), api('GET', '/api/subjects'), api('GET', '/api/users')]);
+  $('#deptTable').innerHTML = table(depts, [['department_id','ID'],['department_name','Name'],['description','Description']]);
+  $('#subTable').innerHTML = table(subs, [['subject_id','ID'],['subject_name','Subject'],['semester','Sem'],['department_name','Department']]);
+  $('#userTable').innerHTML = table(users, [['user_id','ID'],['name','Name'],['email','Email'],['phone','Phone'],['student_year','Year'],['department_name','Dept']]);
+  const current = $('#me').value;
+  fillSelect($('#me'), users, 'user_id', (u) => `${u.name} (#${u.user_id})`);
+  if (current) $('#me').value = current;
+  document.querySelectorAll('.deptSel').forEach((s) => fillSelect(s, depts, 'department_id', (d) => d.department_name));
+  document.querySelectorAll('.subjectSel').forEach((s) => fillSelect(s, subs, 'subject_id', (x) => x.subject_name));
+}
+
+async function loadResources() {
+  const p = new URLSearchParams();
+  if ($('#fq').value) p.set('q', $('#fq').value);
+  if ($('#ftype').value) p.set('type', $('#ftype').value);
+  if ($('#fstatus').value) p.set('status', $('#fstatus').value);
+  const rows = await api('GET', '/api/resources?' + p);
+  $('#resTable').innerHTML = table(rows, [
+    ['resource_id','ID'], ['title','Title'], ['resource_type','Type'], ['category','Category'],
+    ['subject_name','Subject'], ['uploaded_by','Owner'], ['status','Status', tag], ['download_count','Downloads'],
+  ], (r) => [
+    r.resource_type === 'physical' ? btn('borrow', r.resource_id, 'Borrow') : btn('download', r.resource_id, 'Download'),
+    btn('fav', r.resource_id, '★ Fav'), btn('rate', r.resource_id, 'Rate'), btn('report', r.resource_id, 'Report'),
+  ].join(' '));
+}
+
+async function loadBorrows() {
+  const rows = await api('GET', '/api/borrows');
+  $('#borrowTable').innerHTML = table(rows, [
+    ['borrow_id','ID'], ['name','Borrower'], ['title','Resource'], ['borrow_date','Borrowed'], ['due_date','Due'],
+    ['borrow_status','Status', tag], ['return_date','Returned'], ['fine_amount','Fine (Rs.)'], ['resource_condition','Condition'],
+  ], (r) => (r.borrow_status === 'borrowed' ? btn('return', r.borrow_id, 'Return') : ''));
+}
+
+async function loadFavorites() {
+  const rows = await api('GET', '/api/favorites');
+  $('#favTable').innerHTML = table(rows, [['favorite_id','ID'],['user','User'],['title','Resource'],['added_date','Added']],
+    (r) => btn('delfav', r.favorite_id, 'Remove'));
+}
+
+async function loadReports() {
+  const rows = await api('GET', '/api/reports');
+  $('#repTable').innerHTML = table(rows, [['report_id','ID'],['reported_by','Reported by'],['title','Resource'],['reason','Reason'],['report_date','Date'],['status','Status', tag]],
+    (r) => (r.status === 'pending' ? btn('resolve', r.report_id, 'Resolve') + ' ' + btn('reject', r.report_id, 'Reject') : ''));
+}
+
+async function loadDashboard() {
+  const [stats, avg, ratings] = await Promise.all([api('GET', '/api/stats'), api('GET', '/api/ratings/average'), api('GET', '/api/ratings')]);
+  $('#nodeCards').innerHTML = stats.nodes.map((n) => `<div class="card"><b>${n.total}</b>${esc(n.label)}</div>`).join('');
+  $('#relCards').innerHTML = stats.relationships.map((n) => `<div class="card"><b>${n.total}</b>${esc(n.type)}</div>`).join('');
+  $('#avgTable').innerHTML = table(avg, [['resource_id','ID'],['title','Resource'],['avg_rating','Average'],['total_ratings','# ratings']]);
+  $('#ratingsTable').innerHTML = table(ratings, [['rating_id','ID'],['user','User'],['title','Resource'],['rating_value','Stars'],['review','Review'],['rating_date','Date']]);
+}
+
+const loaders = { dashboard: loadDashboard, resources: loadResources, borrows: loadBorrows, favorites: loadFavorites, reports: loadReports, master: loadMaster };
+let current = 'dashboard';
+async function refresh() { await loadMaster(); if (current !== 'master') await loaders[current](); }
+
+/* ---------- events ---------- */
+$('#tabs').addEventListener('click', (e) => {
+  const t = e.target.dataset.tab; if (!t) return;
+  current = t;
+  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b === e.target));
+  document.querySelectorAll('section').forEach((s) => s.classList.toggle('active', s.id === 'tab-' + t));
+  loaders[t]().catch(() => {});
+});
+$('#fbtn').onclick = () => loadResources().catch(() => {});
+$('#resetBtn').onclick = async () => {
+  if (!confirm('Delete all data and reload the sample data?')) return;
+  await api('POST', '/api/reset'); toast('Sample data reloaded'); await refresh();
+};
+
+const actions = {
+  borrow:   async (id) => { const r = await api('POST', '/api/borrow', { user_id: me(), resource_id: id }); toast(`Borrowed! Due ${r.due_date}`); await loadResources(); },
+  download: async (id) => { const r = await api('POST', `/api/resources/${id}/download`); toast(`Downloads: ${r.download_count}`); await loadResources(); },
+  fav:      async (id) => { await api('POST', '/api/favorites', { user_id: me(), resource_id: id }); toast('Added to favorites'); },
+  rate:     async (id) => {
+    const v = prompt('Rating (1-5)?'); if (!v) return;
+    const review = prompt('Review (optional)') || '';
+    await api('POST', '/api/ratings', { user_id: me(), resource_id: id, rating_value: v, review }); toast('Rating saved');
+  },
+  report:   async (id) => { const reason = prompt('Why are you reporting this resource?'); if (!reason) return; await api('POST', '/api/reports', { user_id: me(), resource_id: id, reason }); toast('Report submitted'); },
+  return:   async (id) => {
+    const cond = prompt('Condition of the resource?', 'Good condition'); if (cond === null) return;
+    const r = await api('POST', '/api/return', { borrow_id: id, resource_condition: cond, return_date: $('#returnDate').value || undefined });
+    toast(`Returned. Fine: Rs.${r.fine_amount}`); await loadBorrows();
+  },
+  delfav:   async (id) => { await api('DELETE', `/api/favorites/${id}`); toast('Removed'); await loadFavorites(); },
+  resolve:  async (id) => { await api('PATCH', `/api/reports/${id}`, { status: 'resolved' }); await loadReports(); },
+  reject:   async (id) => { await api('PATCH', `/api/reports/${id}`, { status: 'rejected' }); await loadReports(); },
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  actions[b.dataset.act](Number(b.dataset.id)).catch(() => {});
+});
+
+document.querySelectorAll('form[data-post]').forEach((f) => f.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(f));
+  if (f.dataset.owner) body.owner_id = me();
+  try { await api('POST', f.dataset.post, body); toast('Saved'); f.reset(); await refresh(); } catch (_) {}
+}));
+
+refresh().then(() => loadDashboard()).catch(() => {});
+</script>
+</body>
+</html>
