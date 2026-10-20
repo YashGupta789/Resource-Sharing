@@ -395,24 +395,3 @@ The data has 9 entities that are almost all connected by foreign keys, plus mult
 | Want a clean database                                                     | Click **Reset demo data** in the app, or `docker compose down -v`.                                                      |
 | `bash scripts/smoke-test.sh` fails with `\r: command not found` (Windows) | Git converted line endings. Run `sed -i 's/\r$//' scripts/smoke-test.sh` in Git Bash, then retry.                       |
 | `docker compose` not recognised                                           | Update Docker Desktop, or try the older `docker-compose` command.                                                       |
-
-
----
-
-
-
-## Viva Cheat Sheet
-
-**Short answer to "Why NoSQL?":** *"Our data is highly connected (users, resources, subjects, departments, borrows, ratings, favourites, reports) and we need ACID transactions for borrow and return, so we chose the Neo4j graph database. It is NoSQL, queried with Cypher."*
-
-
-| Question                                            | Answer                                                                                                   |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Why NoSQL / why graph?                              | Highly connected data; relationships are first-class so joins are cheap; flexible schema.                |
-| Where are the foreign keys?                         | Relationships. The API creates them only when both nodes exist.                                          |
-| How do you stop two people borrowing the same book? | One transaction plus a write lock on the resource node.                                                  |
-| How are sequences done?                             | `Counter` nodes incremented atomically in the same transaction as the insert.                            |
-| Are passwords safe?                                 | Salted scrypt hashes (the SQL document used plain text).                                                 |
-| What are the limitations?                           | No CHECK constraints or native triggers in Community edition, so they are enforced in the service layer. |
-
-
